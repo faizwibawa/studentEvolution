@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import random
 import plotly.express as px
+import time
 
 # --- Configuration & Setup ---
 st.set_page_config(page_title="College Strategy ABM", layout="wide")
@@ -80,38 +81,74 @@ class StudentAgent:
         return max(1, fitness)
 
 # --- Simulation Logic ---
-def run_simulation(num_students, num_semesters, days_per_semester, templates_config, actions_config, events_config, fitness_weights, mutation_rate):
+def run_simulation_stepwise(num_students,num_semesters,days_per_semester,templates_config,actions_config,events_config,
+    fitness_weights,
+    mutation_rate
+):
     templates = list(templates_config.keys())
-    population = [StudentAgent(random.choice(templates), templates_config, actions_config, events_config, mutation_rate) for _ in range(num_students)]
+
+    population = [
+        StudentAgent(
+            random.choice(templates),
+            templates_config,
+            actions_config,
+            events_config,
+            mutation_rate
+        )
+        for _ in range(num_students)
+    ]
+
     history = []
 
     for semester in range(num_semesters):
+
+        # Simulasi harian
         for day in range(days_per_semester):
             for agent in population:
                 agent.step()
-                
+
+        # Hitung populasi template
         counts = {t: 0 for t in templates}
+
         for agent in population:
             counts[agent.template] += 1
-        
+
         record = {"Semester": semester + 1}
         record.update(counts)
-        history.append(record)
-        
-        template_fitness = {t: 0 for t in templates}
-        for agent in population:
-            template_fitness[agent.template] += agent.get_fitness(fitness_weights)
-            
-        total_fitness = sum(template_fitness.values())
-        
-        if total_fitness > 0:
-            weights = [template_fitness[t] / total_fitness for t in templates]
-        else:
-            weights = [1.0 / len(templates) for _ in templates]
-            
-        population = [StudentAgent(np.random.choice(templates, p=weights), templates_config, actions_config, events_config, mutation_rate) for _ in range(num_students)]
 
-    return pd.DataFrame(history)
+        history.append(record)
+
+        # Fitness
+        template_fitness = {t: 0 for t in templates}
+
+        for agent in population:
+            template_fitness[agent.template] += agent.get_fitness(
+                fitness_weights
+            )
+
+        total_fitness = sum(template_fitness.values())
+
+        if total_fitness > 0:
+            weights = [
+                template_fitness[t] / total_fitness
+                for t in templates
+            ]
+        else:
+            weights = [1 / len(templates)] * len(templates)
+
+        # Reproduction
+        population = [
+            StudentAgent(
+                np.random.choice(templates, p=weights),
+                templates_config,
+                actions_config,
+                events_config,
+                mutation_rate
+            )
+            for _ in range(num_students)
+        ]
+
+        yield pd.DataFrame(history)
 
 # --- Streamlit UI ---
 st.title("College Student Strategies: Evolutionary ABM")
@@ -138,6 +175,14 @@ fitness_weights = {
 
 st.sidebar.header("Genetics")
 mutation_rate = st.sidebar.slider("Daily Mutation Chance", 0.0, 0.1, 0.01, 0.001, format="%.3f")
+
+animation_speed = st.sidebar.slider(
+    "Animation Speed (sec)",
+    0.01,
+    1.0,
+    0.10,
+    0.01
+)
 
 # --- UI: Action Customization ---
 st.subheader("1. Actions")
@@ -230,21 +275,62 @@ if st.button("Run Evolutionary Simulation", type="primary"):
                         "social_eff": float(row["Social Hit"])
                     }
                     
-            df_history = run_simulation(num_students, num_semesters, days_per_semester, templates_config, actions_config, events_config, fitness_weights, mutation_rate)
-            
-        st.subheader("Template Evolution Over Time")
-        df_melted = df_history.melt(id_vars=["Semester"], var_name="Template", value_name="Population")
-        
-        fig = px.area(
-            df_melted, 
-            x="Semester", 
-            y="Population", 
-            color="Template",
-            title="Student Population Strategy Distribution",
-            color_discrete_sequence=px.colors.qualitative.Plotly
-        )
-        
-        st.plotly_chart(fig, width="stretch")
+            chart_placeholder = st.empty()
+            progress_bar = st.progress(0)
 
-        with st.expander("View Raw Data & Final States"):
-            st.dataframe(df_history.set_index("Semester"), width="stretch")
+            final_df = None
+
+            for semester_idx, df_history in enumerate(
+                run_simulation_stepwise(
+                    num_students,
+                    num_semesters,
+                    days_per_semester,
+                    templates_config,
+                    actions_config,
+                    events_config,
+                    fitness_weights,
+                    mutation_rate
+                )
+            ):
+
+                final_df = df_history
+
+                df_melted = df_history.melt(
+                    id_vars=["Semester"],
+                    var_name="Template",
+                    value_name="Population"
+                )
+
+                fig = px.area(
+                    df_melted,
+                    x="Semester",
+                    y="Population",
+                    color="Template",
+                    title="Student Population Strategy Distribution",
+                    color_discrete_sequence=px.colors.qualitative.Plotly
+                )
+
+                fig.update_layout(
+                    xaxis=dict(range=[1, num_semesters]),
+                    yaxis=dict(range=[0, num_students]),
+                    transition_duration=200
+                )
+
+                chart_placeholder.plotly_chart(
+                    fig,
+                    width="stretch"
+                )
+
+                progress_bar.progress(
+                    (semester_idx + 1) / num_semesters
+                )
+
+                time.sleep(animation_speed)
+
+            st.success("Simulation Complete!")
+
+            with st.expander("View Raw Data"):
+                st.dataframe(
+                    final_df.set_index("Semester"),
+                    width="stretch"
+                )
