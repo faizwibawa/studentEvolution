@@ -174,7 +174,7 @@ fitness_weights = {
 }
 
 st.sidebar.header("Genetics")
-mutation_rate = st.sidebar.slider("Daily Mutation Chance", 0.0, 0.1, 0.01, 0.001, format="%.3f")
+mutation_rate = st.sidebar.slider("Daily Mutation Chance", 0.0, 0.75, 0.05, 0.005, format="%.3f")
 
 animation_speed = st.sidebar.slider(
     "Animation Speed (sec)",
